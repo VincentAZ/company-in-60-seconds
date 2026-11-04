@@ -73,7 +73,7 @@ function PitchPanel({a,finance,complete}:{a:Artifacts;finance:Finance|null;compl
  const active=slides[index];
  useEffect(()=>{const strip=filmstrip.current;if(strip&&selected===null)strip.scrollTo({left:strip.scrollWidth,behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});},[slides.length,selected]);
  if(!active)return <PreviewEmpty title="The story is taking shape" description="Pitch is synthesizing the brand, problem, solution and assumption-based financial narrative."/>;
- const palette=core?.palette||{bg:"#18253A",ink:"#F1F6FF",primary:"#A1E9C8",accent:"#E4B478"};
+ const palette=core?.palette||{bg:"#18253A",surface:"#26354D",ink:"#F1F6FF",primary:"#A1E9C8",accent:"#E4B478"};
  const {metrics}=finance?calculateFinance(finance):{metrics:{} as Record<string,number|null>};
  const metricLabel:Record<string,string>={monthlyPrice:"Unit revenue",year1Revenue:"Year 1 revenue",year3Revenue:"Year 3 revenue",year1Profit:"Year 1 profit",breakEvenMonth:"Break-even month"};
  return <div className="slide-deck">
@@ -84,7 +84,7 @@ function PitchPanel({a,finance,complete}:{a:Artifacts;finance:Finance|null;compl
    {active.metricKeys.length>0&&<div style={{display:"flex",flexWrap:"wrap",gap:30,marginTop:25}}>{active.metricKeys.map(k=><div key={k}><div style={{fontSize:23,fontWeight:800,color:palette.primary}}>{k==="breakEvenMonth"?(metrics[k]?"Month "+metrics[k]:"N/A"):money(Number(metrics[k]||0))}</div><div style={{fontSize:10,opacity:.7,marginTop:6}}>{metricLabel[k]}</div></div>)}</div>}
    <span style={{position:"absolute",bottom:20,right:30,fontSize:12,opacity:.5}}>{core?.name}</span>
  </div>
- <div ref={filmstrip} className={"slide-filmstrip "+(complete?"filmstrip-complete":"")} aria-label="Pitch slides">{slides.map((s,i)=><button key={i} aria-label={"Slide "+(i+1)+": "+s.title} aria-current={i===index?"true":undefined} onClick={()=>setSelected(i)} className={"slide-thumb "+(i===Math.min(index,slides.length-1)?"active":"")} style={{background:i%2===0?palette.bg:"#26354D",color:palette.ink}}><span style={{opacity:.5,fontSize:9}}>0{i+1}</span><b>{s.title}</b></button>)}</div>
+ <div ref={filmstrip} className={"slide-filmstrip "+(complete?"filmstrip-complete":"")} aria-label="Pitch slides">{slides.map((s,i)=><button key={i} aria-label={"Slide "+(i+1)+": "+s.title} aria-current={i===index?"true":undefined} onClick={()=>setSelected(i)} className={"slide-thumb "+(i===Math.min(index,slides.length-1)?"active":"")} style={{background:i%2===0?palette.bg:palette.surface,color:palette.ink}}><span style={{opacity:.5,fontSize:9}}>0{i+1}</span><b>{s.title}</b></button>)}</div>
  <div className="assumption-note">{complete?"Deck assembled. ":"Slides arrive as Pitch produces them. "}Financial values are linked to the assumptions. {selected!==null&&<button className="text-button" onClick={()=>setSelected(null)}>Follow newest slide</button>}</div>
  </div>;
 }
