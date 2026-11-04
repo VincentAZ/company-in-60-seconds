@@ -62,12 +62,17 @@ export async function getBuild(id:string,options:{accessToken?:string;after?:num
  const fixture=exampleById(id);
  if(fixture)return {record:fixture.record,events:fixture.events.filter(e=>e.seq>(options.after??0))};
  if(!db)return null; // Local generation logs are private developer artifacts.
- const {data:build,error}=await db.from('builds').select('id,slug,prompt,status,started_at,duration_ms,artifacts,featured,schema_version,access_hash,expires_at').eq('id',id).maybeSingle();
+ const read=()=>db.from('builds').select('id,slug,prompt,status,started_at,duration_ms,artifacts,featured,schema_version,access_hash,expires_at').eq('id',id).maybeSingle();
+ let {data:build,error}=await read();
  if(error)throw new Error('Build read failed');
  if(!build||(!build.featured&&!tokenMatches(options.accessToken,build.access_hash)))return null;
  if(build.status==='running'&&Date.parse(build.expires_at)<Date.now()){
   const {error:expired}=await db.rpc('expire_builds');if(expired)throw new Error('Build recovery failed');
-  return getBuild(id,options);
+  // SKIP LOCKED may leave a build running while another transaction finishes it.
+  // Re-read once, then let the client's next poll retry instead of recursing forever.
+  ({data:build,error}=await read());
+  if(error)throw new Error('Build read failed');
+  if(!build||(!build.featured&&!tokenMatches(options.accessToken,build.access_hash)))return null;
  }
  const {data:events,error:ee}=await db.from('build_events').select('build_id,seq,t_ms,agent,type,payload').eq('build_id',build.id).order('seq').limit(256);
  if(ee)throw new Error('Event read failed');

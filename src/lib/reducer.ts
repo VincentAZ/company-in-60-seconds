@@ -1,5 +1,6 @@
 import { buildEventSchema,patchSchema } from "./schema";
 import type {Artifacts,BuildEvent,Patch} from "./schema";
+import {equivalentBuildEvent} from "./build-stream";
 export const emptyArtifacts=():Artifacts=>({brief:null,brand:{core:null,logo:null},finance:null,website:{setup:null,sections:[]},pitch:{slides:[]}});
 export function applyPatch(a:Artifacts,input:Patch):Artifacts{
  const p=patchSchema.parse(input);
@@ -20,14 +21,14 @@ export function applyPatch(a:Artifacts,input:Patch):Artifacts{
 }
 /** Poll and stream deliveries can overlap; a sequence may only be applied once. */
 export function reduceEvents(events:BuildEvent[],initial:Artifacts=emptyArtifacts()):Artifacts{
- const seen=new Map<number,string>();let buildId:string|undefined;let time=0;let state=initial;
+ const seen=new Map<number,BuildEvent>();let buildId:string|undefined;let time=0;let state=initial;
  for(const raw of [...events].sort((a,b)=>a.seq-b.seq)){
   const e=buildEventSchema.parse(raw);
   if(buildId&&buildId!==e.build_id)throw new Error("Cannot mix events from different builds");
   buildId=e.build_id;
-  const serialized=JSON.stringify(e),previous=seen.get(e.seq);
-  if(previous){if(previous!==serialized)throw new Error("Conflicting event sequence");continue;}
-  seen.set(e.seq,serialized);
+  const previous=seen.get(e.seq);
+  if(previous){if(!equivalentBuildEvent(previous,e))throw new Error("Conflicting event sequence");continue;}
+  seen.set(e.seq,e);
   if(e.t_ms<time)throw new Error("Event time moved backwards");
   time=e.t_ms;
   if(e.type==="artifact.patch")state=applyPatch(state,patchSchema.parse(e.payload));

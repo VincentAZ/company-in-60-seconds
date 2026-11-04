@@ -4,7 +4,7 @@ import Link from "next/link";
 import {Pause,Play,RotateCcw,ExternalLink,Palette,Globe,ChartNoAxesCombined,Presentation,BrainCircuit,Check,Copy,Sparkles} from "lucide-react";
 import type {Artifacts,BuildEvent,BuildRecord,Finance} from "@/lib/schema";
 import {financeSchema,buildEventSchema} from "@/lib/schema";
-import {BuildStreamParser,eventCursor,mergeBuildEvents} from "@/lib/build-stream";
+import {BuildStreamParser,eventCursor,mergeBuildEvents,recoveryDeadline} from "@/lib/build-stream";
 import {emptyArtifacts,reduceEvents} from "@/lib/reducer";
 import {calculateFinance,money} from "@/lib/finance";
 import {BrandMark} from "./logo";
@@ -20,9 +20,9 @@ const AGENTS=[
 const tabs:[Tab,typeof Globe][]=[["website",Globe],["brand",Palette],["finance",ChartNoAxesCombined],["pitch",Presentation]];
 const fmt=(n:number)=>(n/1000).toFixed(1)+"s";
 const fmtClock=(ms:number)=>{const s=Math.floor(ms/1000);return String(Math.floor(s/60)).padStart(2,"0")+":"+String(s%60).padStart(2,"0")+"."+String(Math.floor(ms%1000/100));};
-function BrandPanel({a}:{a:Artifacts}){
+function BrandPanel({a,stopped=false}:{a:Artifacts;stopped?:boolean}){
  const core=a.brand.core,logo=a.brand.logo;
- if(!core)return <PreviewEmpty title="Finding the brand's character" description="The brand agent is researching the idea and generating its name, voice and visual identity."/>;
+ if(!core)return <PreviewEmpty stopped={stopped} title="Finding the brand's character" description="The brand agent is researching the idea and generating its name, voice and visual identity."/>;
  return <div className="preview-brand">
  <div className="brand-hero" style={{background:core.palette.bg,color:core.palette.ink}}>
   <BrandMark core={core} logo={logo} size={95}/>
@@ -30,11 +30,11 @@ function BrandPanel({a}:{a:Artifacts}){
   <span style={{opacity:.55,fontSize:11,textTransform:"uppercase",letterSpacing:2}}>{core.industry}</span>
  </div>
  <div className="swatches">{Object.entries(core.palette).map(([key,value])=><div key={key} className="swatch" style={{background:value}}><strong>{key} · {value}</strong></div>)}</div>
- <div className="brand-detail"><span>Voice: {core.voice}</span><span>Typography: {core.font}</span><span>{logo?"Custom geometric mark complete":"Designing symbol…"}</span></div>
+ <div className="brand-detail"><span>Voice: {core.voice}</span><span>Typography: {core.font}</span><span>{logo?"Custom geometric mark complete":stopped?"Symbol was not completed":"Designing symbol…"}</span></div>
  </div>;
 }
-function PreviewEmpty({title,description}:{title:string;description:string}){
- return <div className="preview-empty"><div className="spinner-ring"/><h3>{title}</h3><p>{description}</p></div>;
+function PreviewEmpty({title,description,stopped=false}:{title:string;description:string;stopped?:boolean}){
+ return <div className="preview-empty">{!stopped&&<div className="spinner-ring"/>}<h3>{stopped?"No artifact was completed":title}</h3><p>{stopped?"This build has stopped. Its available outputs and failures are preserved in the event stream.":description}</p></div>;
 }
 const labels:[keyof Finance,string,number,number][]=[
  ["monthlyPrice","Unit revenue ($)",1,100000],
@@ -45,8 +45,8 @@ const labels:[keyof Finance,string,number,number][]=[
  ["monthlyFixedCosts","Fixed monthly costs ($)",0,1000000],
  ["startupCost","Startup costs ($)",0,10000000]
 ];
-function FinancePanel({finance,onChange}:{finance:Finance|null;onChange:(f:Finance)=>void}){
- if(!finance)return <PreviewEmpty title="Modeling the business" description="Finance is choosing assumptions. Every projection will be calculated in code, not invented by an agent."/>;
+function FinancePanel({finance,onChange,stopped=false}:{finance:Finance|null;onChange:(f:Finance)=>void;stopped?:boolean}){
+ if(!finance)return <PreviewEmpty stopped={stopped} title="Modeling the business" description="Finance is choosing assumptions. Every projection will be calculated in code, not invented by an agent."/>;
  const {months,metrics}=calculateFinance(finance);
  const unit = finance.archetype==="subscription"?"customer":finance.archetype==="capacity"?"booking":finance.archetype==="marketplace"?"transaction":"purchase";
  const max=Math.max(1,...months.map(m=>m.revenue));const width=650,height=180;
@@ -65,14 +65,14 @@ function FinancePanel({finance,onChange}:{finance:Finance|null;onChange:(f:Finan
  <p className="assumption-note"><strong>Important:</strong> This is a hypothetical scenario, not an investment forecast. Assumptions are illustrative, not sourced from market research. Volume grows first, then churn applies. Marketplace unit revenue is the platform’s net revenue per transaction. {finance.rationale}</p>
  </div>;
 }
-function PitchPanel({a,finance,complete}:{a:Artifacts;finance:Finance|null;complete:boolean}){
+function PitchPanel({a,finance,complete,stopped=false}:{a:Artifacts;finance:Finance|null;complete:boolean;stopped?:boolean}){
  const slides=a.pitch.slides,core=a.brand.core;
  const [selected,setSelected]=useState<number|null>(null);
  const filmstrip=useRef<HTMLDivElement>(null);
  const index=Math.min(selected??slides.length-1,slides.length-1);
  const active=slides[index];
  useEffect(()=>{const strip=filmstrip.current;if(strip&&selected===null)strip.scrollTo({left:strip.scrollWidth,behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});},[slides.length,selected]);
- if(!active)return <PreviewEmpty title="The story is taking shape" description="Pitch is synthesizing the brand, problem, solution and assumption-based financial narrative."/>;
+ if(!active)return <PreviewEmpty stopped={stopped} title="The story is taking shape" description="Pitch is synthesizing the brand, problem, solution and assumption-based financial narrative."/>;
  const palette=core?.palette||{bg:"#18253A",surface:"#26354D",ink:"#F1F6FF",primary:"#A1E9C8",accent:"#E4B478"};
  const {metrics}=finance?calculateFinance(finance):{metrics:{} as Record<string,number|null>};
  const metricLabel:Record<string,string>={monthlyPrice:"Unit revenue",year1Revenue:"Year 1 revenue",year3Revenue:"Year 3 revenue",year1Profit:"Year 1 profit",breakEvenMonth:"Break-even month"};
@@ -85,7 +85,7 @@ function PitchPanel({a,finance,complete}:{a:Artifacts;finance:Finance|null;compl
    <span style={{position:"absolute",bottom:20,right:30,fontSize:12,opacity:.5}}>{core?.name}</span>
  </div>
  <div ref={filmstrip} className={"slide-filmstrip "+(complete?"filmstrip-complete":"")} aria-label="Pitch slides">{slides.map((s,i)=><button key={i} aria-label={"Slide "+(i+1)+": "+s.title} aria-current={i===index?"true":undefined} onClick={()=>setSelected(i)} className={"slide-thumb "+(i===Math.min(index,slides.length-1)?"active":"")} style={{background:i%2===0?palette.bg:palette.surface,color:palette.ink}}><span style={{opacity:.5,fontSize:9}}>0{i+1}</span><b>{s.title}</b></button>)}</div>
- <div className="assumption-note">{complete?"Deck assembled. ":"Slides arrive as Pitch produces them. "}Financial values are linked to the assumptions. {selected!==null&&<button className="text-button" onClick={()=>setSelected(null)}>Follow newest slide</button>}</div>
+ <div className="assumption-note">{complete?"Deck assembled. ":stopped?"This deck is incomplete; the build has stopped. ":"Slides arrive as Pitch produces them. "}Financial values are linked to the assumptions. {selected!==null&&<button className="text-button" onClick={()=>setSelected(null)}>Follow newest slide</button>}</div>
  </div>;
 }
 function displayEvent(e:BuildEvent){
@@ -100,7 +100,7 @@ function displayEvent(e:BuildEvent){
  if(e.type==="build.completed")return "Build "+String(e.payload.status||"completed");
  return String(e.payload.message||e.type);
 }
-function WebsitePreview({artifacts,finance,active}:{artifacts:Artifacts;finance:Finance|null;active:boolean}){
+function WebsitePreview({artifacts,finance,active,stopped=false}:{artifacts:Artifacts;finance:Finance|null;active:boolean;stopped?:boolean}){
  const viewport=useRef<HTMLDivElement>(null);
  const [follow,setFollow]=useState(true);
  const count=artifacts.website.sections.length;
@@ -110,7 +110,7 @@ function WebsitePreview({artifacts,finance,active}:{artifacts:Artifacts;finance:
   const section=container.querySelector<HTMLElement>(`#section-${count-1}`);
   if(section)container.scrollTo({top:container.scrollTop+section.getBoundingClientRect().top-container.getBoundingClientRect().top,behavior:window.matchMedia("(prefers-reduced-motion: reduce)").matches?"instant":"smooth"});
  },[count,active,follow]);
- if(!count)return <PreviewEmpty title="Waiting for the first section" description="Website construction begins the moment brand direction and financial assumptions arrive."/>;
+ if(!count)return <PreviewEmpty stopped={stopped} title="Waiting for the first section" description="Website construction begins the moment brand direction and financial assumptions arrive."/>;
  return <><div className="preview-toolbar"><span>{count} sections assembled</span><button aria-pressed={follow} onClick={()=>setFollow(!follow)}>{follow?"Following new sections":"Follow new sections"}</button></div><div ref={viewport} className="preview-website" onWheel={()=>setFollow(false)} onTouchMove={()=>setFollow(false)}><GeneratedSite artifacts={artifacts} financeOverride={finance} embedded/></div></>;
 }
 function DependencyMap({events,artifacts}:{events:BuildEvent[];artifacts:Artifacts}){
@@ -123,7 +123,9 @@ function DependencyMap({events,artifacts}:{events:BuildEvent[];artifacts:Artifac
  </div>;
 }
 function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}:{events:BuildEvent[];prompt:string;elapsed:number;replay?:boolean;demo?:boolean;id?:string;problem?:string;notice?:string}){
- const artifacts=useMemo(()=>{try{return reduceEvents(events)}catch{return emptyArtifacts();}},[events]);
+ const reduction=useMemo(()=>{try{return {artifacts:reduceEvents(events),error:""}}catch{return {artifacts:emptyArtifacts(),error:"Saved events are inconsistent. This replay cannot reconstruct the artifacts safely."};}},[events]);
+ const artifacts=reduction.artifacts;
+ problem=problem||reduction.error;
  const [chosenTab,setTab]=useState<Tab|null>(null),[override,setOverride]=useState<{source:string;finance:Finance}|null>(null),[copied,setCopied]=useState(false),[copyError,setCopyError]=useState(""),[shareUrl,setShareUrl]=useState(""),[sharing,setSharing]=useState(false);
  const last=events[events.length-1];
  const lastPatch=events.findLast(event=>event.type==="artifact.patch"&&event.agent!=="Brief");
@@ -131,7 +133,7 @@ function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}
  const tab=chosenTab??(tabs.some(([name])=>name===automaticTab)?automaticTab:"brand");
  const source=JSON.stringify(artifacts.finance);
  const finance=override?.source===source?override.finance:artifacts.finance;
- const statuses:Record<string,"waiting"|"working"|"done"|"failed">={};
+ const statuses:Record<string,"waiting"|"working"|"done"|"failed"|"stopped">={};
  for(const a of AGENTS)statuses[a.name]="waiting";
  for(const e of events){
   if(e.type==="agent.started")statuses[e.agent]="working";
@@ -139,23 +141,25 @@ function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}
   if(e.type==="agent.failed")statuses[e.agent]="failed";
  }
  const finished=last?.type==="build.completed";
+ const stopped=finished||Boolean(problem);
+ if(stopped)for(const agent of AGENTS)if(statuses[agent.name]==="working")statuses[agent.name]="stopped";
  const terminalStatus=finished?String(last.payload.status):"";
- const completed=finished&&terminalStatus==="completed";
+ const completed=finished&&terminalStatus==="completed"&&!reduction.error;
  const tabsReady={website:artifacts.website.sections.length,brand:artifacts.brand.core?1:0,finance:artifacts.finance?1:0,pitch:artifacts.pitch.slides.length};
  const title=artifacts.brand.core?.name||"Your next big idea";
  return <div className="studio-shell">
   <div className="studio-top"><Link href="/" className="brand-link"><span className="brand-symbol"><Sparkles size={17}/></span> Company / 60</Link>
    <div className="studio-top-right"><span className="studio-status">{replay?(demo?"DEMO REPLAY":"REPLAY MODE"):finished?`BUILD ${terminalStatus.toUpperCase()}`:problem?"BUILD INTERRUPTED":"LIVE BUILD"}</span><span className="clock">{fmtClock(elapsed)}</span><Link className="small-btn" href="/">New idea</Link></div>
   </div>
-  <div className="studio-title"><div><span className="eyebrow">{replay?(demo?"PRERECORDED EXAMPLE · ILLUSTRATIVE CONTENT":"THE REPLAY EXPERIENCE"):"THE BUILD IS THE SHOW"}</span><h1>{title}<span style={{color:"#95a2b7"}}> / </span>{completed?"Ready to explore.":finished?"A work in progress.":"Taking shape."}</h1><p>{prompt}</p></div><span className="panel-tag">5 model stages / 4 artifacts</span></div>
+  <div className="studio-title"><div><span className="eyebrow">{replay?(demo?"PRERECORDED EXAMPLE · ILLUSTRATIVE CONTENT":"THE REPLAY EXPERIENCE"):"THE BUILD IS THE SHOW"}</span><h1>{title}<span style={{color:"#95a2b7"}}> / </span>{completed?"Ready to explore.":finished?"A work in progress.":stopped?"Build interrupted.":"Taking shape."}</h1><p>{prompt}</p></div><span className="panel-tag">5 model stages / 4 artifacts</span></div>
   {problem&&<div className="error-msg" role="alert">{problem} <Link href="/" style={{textDecoration:"underline"}}>Browse the free replays.</Link></div>}
   {notice&&!problem&&<div className="connection-notice" role="status">{notice}</div>}
   {finished&&!completed&&<div className="connection-notice" role="status">This build finished with {terminalStatus==="partial"?"some incomplete artifacts":"an error"}. The event stream preserves the actual outcome.</div>}
   <div className="studio-layout">
    <aside className="studio-left">
-    <div className="panel"><div className="panel-top"><h3>Agent orchestration</h3><small>{finished?"Finalized":"In progress"}</small></div><div className="agent-list">{AGENTS.map(a=>{
+    <div className="panel"><div className="panel-top"><h3>Agent orchestration</h3><small>{finished?"Finalized":stopped?"Stopped":"In progress"}</small></div><div className="agent-list">{AGENTS.map(a=>{
       const Icon=a.icon;const state=statuses[a.name];
-      return <div className={"agent-row agent-"+state} key={a.name}><div className="agent-icon"><Icon size={17}/></div><div><h4>{a.label}</h4><p>{state==="working"?(replay?"Working at this moment":"Generating live…"):state==="done"?"Artifact ready":state==="failed"?"Generation failed":finished?"Did not start":a.description}</p></div><div aria-label={state} className={"agent-led "+(state==="working"?"active":state)}/></div>;
+      return <div className={"agent-row agent-"+state} key={a.name}><div className="agent-icon"><Icon size={17}/></div><div><h4>{a.label}</h4><p>{state==="working"?(replay?"Working at this moment":"Generating live…"):state==="done"?"Artifact ready":state==="failed"?"Generation failed":state==="stopped"?"Stopped before completion":stopped?"Did not start":a.description}</p></div><div aria-label={state} className={"agent-led "+(state==="working"?"active":state)}/></div>;
     })}</div><DependencyMap events={events} artifacts={artifacts}/></div>
     <div className="panel"><div className="panel-top"><h3>Event stream</h3><small>{events.length} events</small></div><div className="event-feed" tabIndex={0} aria-label="Recorded build events">{events.slice(-22).reverse().map(e=><div className="event-line" key={e.seq}><span className="time">{fmt(e.t_ms)}</span><span>{displayEvent(e)}</span></div>)}{events.length===0&&<div style={{padding:12,color:"#8090aa",fontSize:12}}>Waiting for the first event…</div>}</div></div>
     <div className="panel" style={{padding:17,fontSize:12,lineHeight:1.7,color:"#9eacc0"}}><strong style={{color:"#a4efc9"}}>The dependencies are real.</strong><p style={{margin:"8px 0 0"}}>Brand and Finance start together. Website and Pitch wait for both to deliver usable inputs. Every event is timestamped for deterministic replay.</p></div>
@@ -164,10 +168,10 @@ function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}
     <div className="main-panel">
      <div className="preview-tabs"><div className="tab-buttons" role="tablist" aria-label="Company artifacts">{tabs.map(([name,Icon])=><button role="tab" tabIndex={tab===name?0:-1} onKeyDown={event=>{const current=tabs.findIndex(([value])=>value===name);const next=event.key==="ArrowRight"?(current+1)%tabs.length:event.key==="ArrowLeft"?(current+tabs.length-1)%tabs.length:event.key==="Home"?0:event.key==="End"?tabs.length-1:null;if(next!==null){event.preventDefault();setTab(tabs[next][0]);document.getElementById("tab-"+tabs[next][0])?.focus();}}} aria-selected={tab===name} aria-controls={"panel-"+name} id={"tab-"+name} key={name} className={"tab-button "+(tab===name?"selected":"")} onClick={()=>setTab(name)}><Icon size={15}/> {name[0].toUpperCase()+name.slice(1)} {tabsReady[name]>0&&<Check size={12} style={{color:"#a2ebc4"}}/>}</button>)}</div><button className="auto-follow" aria-pressed={chosenTab===null} onClick={()=>setTab(null)}>Follow agents</button></div>
      <div className="preview-body">
-      <div role="tabpanel" id="panel-website" aria-labelledby="tab-website" hidden={tab!=="website"}><WebsitePreview artifacts={artifacts} finance={finance} active={tab==="website"}/></div>
-      <div role="tabpanel" id="panel-brand" aria-labelledby="tab-brand" hidden={tab!=="brand"}><BrandPanel a={artifacts}/></div>
-      <div role="tabpanel" id="panel-finance" aria-labelledby="tab-finance" hidden={tab!=="finance"}><FinancePanel finance={finance} onChange={value=>setOverride({source,finance:value})}/></div>
-      <div role="tabpanel" id="panel-pitch" aria-labelledby="tab-pitch" hidden={tab!=="pitch"}><PitchPanel a={artifacts} finance={finance} complete={statuses.Pitch==="done"}/></div>
+      <div role="tabpanel" id="panel-website" aria-labelledby="tab-website" hidden={tab!=="website"}><WebsitePreview artifacts={artifacts} finance={finance} active={tab==="website"} stopped={stopped}/></div>
+      <div role="tabpanel" id="panel-brand" aria-labelledby="tab-brand" hidden={tab!=="brand"}><BrandPanel a={artifacts} stopped={stopped}/></div>
+      <div role="tabpanel" id="panel-finance" aria-labelledby="tab-finance" hidden={tab!=="finance"}><FinancePanel finance={finance} onChange={value=>setOverride({source,finance:value})} stopped={stopped}/></div>
+      <div role="tabpanel" id="panel-pitch" aria-labelledby="tab-pitch" hidden={tab!=="pitch"}><PitchPanel a={artifacts} finance={finance} complete={statuses.Pitch==="done"} stopped={stopped}/></div>
      </div>
     </div>
     {completed&&<div className="build-finale" key={last.seq}><Sparkles size={17}/><strong>One idea. Four connected artifacts.</strong><span>Explore the website, edit the numbers, share the replay.</span></div>}
@@ -231,7 +235,7 @@ export function LiveStudio({prompt,requestId}:{prompt:string;requestId?:string})
   const poll=async()=>{
    if(!saved.id)throw new Error("Connection interrupted before the build was identified. Reload to retry the same request safely.");
    let failures=0;
-   const deadline=Date.now()+360000;
+   let deadline=recoveryDeadline(new Date(startedAt).toISOString());
    while(!signal.aborted&&!terminal){
     try{
      const response=await fetch(`/api/builds/${saved.id}?after=${eventCursor(collected)}`,{cache:"no-store",signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});
@@ -240,9 +244,9 @@ export function LiveStudio({prompt,requestId}:{prompt:string;requestId?:string})
      if(!body.record||!Array.isArray(body.events))throw new Error("Invalid build recovery response.");
      const parsed=body.events.map(value=>buildEventSchema.parse(value) as BuildEvent);
      accept(parsed);
-     const start=Date.parse(body.record.started_at);if(Number.isFinite(start))startedAt=start;
-     failures=0;
+     const start=Date.parse(body.record.started_at);if(Number.isFinite(start)){startedAt=start;deadline=recoveryDeadline(body.record.started_at);}
      if(body.record.status!=="running"&&!terminal)throw new Error("The build stopped before its final event was stored. Available artifacts are preserved.");
+     failures=0;
     }catch(cause){
      if(signal.aborted)throw cause;
      failures++;

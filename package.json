@@ -8,7 +8,8 @@
     "start": "next start --hostname 0.0.0.0",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/lib/*.test.ts"
+    "test": "tsx --test src/lib/*.test.ts",
+    "test:integration": "tsx scripts/verify-integration.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.91.1",

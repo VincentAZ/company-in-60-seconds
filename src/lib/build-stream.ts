@@ -46,10 +46,31 @@ export function mergeBuildEvents(existing: BuildEvent[], incoming: BuildEvent[])
   for (const event of incoming) {
     if (event.build_id !== buildId) throw new Error("The event stream changed build identifiers.");
     const previous = bySequence.get(event.seq);
-    if (previous && JSON.stringify(previous) !== JSON.stringify(event)) throw new Error("Conflicting build events received.");
+    if (previous && !equivalentBuildEvent(previous, event)) throw new Error("Conflicting build events received.");
     bySequence.set(event.seq, event);
   }
-  return [...bySequence.values()].sort((a, b) => a.seq - b.seq);
+  const merged = [...bySequence.values()].sort((a, b) => a.seq - b.seq);
+  for (let i=1;i<merged.length;i++) {
+    if (merged[i].t_ms < merged[i-1].t_ms) throw new Error("Build event time moved backwards.");
+  }
+  return merged;
+}
+
+// PostgreSQL jsonb changes object-key order. A recovered event must compare by
+// content, while preserving array order (sections, points, and slides are ordered).
+function equivalentJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value,index) => equivalentJson(value,right[index]));
+  }
+  const a=left as Record<string,unknown>,b=right as Record<string,unknown>;
+  const keys=Object.keys(a);
+  return keys.length===Object.keys(b).length && keys.every(key => Object.hasOwn(b,key) && equivalentJson(a[key],b[key]));
+}
+
+export function equivalentBuildEvent(left: BuildEvent, right: BuildEvent): boolean {
+  return equivalentJson(left,right);
 }
 
 /** Never advance a recovery cursor past a missing event. */
@@ -60,4 +81,10 @@ export function eventCursor(events: BuildEvent[]): number {
     else if (event.seq > cursor + 1) break;
   }
   return cursor;
+}
+
+/** Keep recovery alive through the database's ten-minute lease and cleanup grace. */
+export function recoveryDeadline(startedAt: string, now=Date.now()): number {
+  const started=Date.parse(startedAt);
+  return Math.min(Number.isFinite(started)?started:now,now)+660000;
 }

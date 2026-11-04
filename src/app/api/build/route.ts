@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {isIP} from 'node:net';
 import {after} from 'next/server';
+import {sameOrigin} from '@/lib/request-origin';
 import {generateCompany} from '@/lib/agents';
 import {reserveBuild} from '@/lib/storage';
 import {accessCookie,buildToken,generationEnabled,hashIp,hashToken} from '@/lib/build-security';
@@ -9,8 +10,7 @@ export const runtime='nodejs';
 export const maxDuration=300;
 export async function POST(req:Request){
  if(!generationEnabled())return Response.json({error:'Live generation is currently disabled. Explore the demo replay gallery.'},{status:503});
- const origin=req.headers.get('origin');
- if(!origin||origin!==new URL(req.url).origin)return Response.json({error:'Same-origin requests required.'},{status:403});
+ if(!sameOrigin(req))return Response.json({error:'Same-origin requests required.'},{status:403});
  if(!req.headers.get('content-type')?.startsWith('application/json'))return Response.json({error:'JSON required.'},{status:415});
  const requestKey=req.headers.get('idempotency-key')??'';
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestKey))return Response.json({error:'A UUID idempotency key is required.'},{status:400});
@@ -35,7 +35,7 @@ export async function POST(req:Request){
  }
  const record=reservation.record;
  const headers=new Headers({'Cache-Control':'private, no-store','X-Build-Id':record.id});
- headers.set('Set-Cookie',`${accessCookie(record.id)}=${buildToken(record.id)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000${process.env.NODE_ENV==='production'?'; Secure':''}`);
+ headers.set('Set-Cookie',`${accessCookie(record.id)}=${buildToken(record.id)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.NODE_ENV==='production'?'; Secure':''}`);
  if(!reservation.created)return Response.json({id:record.id},{headers});
  const encoder=new TextEncoder();let connected=true;
  let controller:ReadableStreamDefaultController<Uint8Array>;

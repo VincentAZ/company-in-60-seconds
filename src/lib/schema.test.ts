@@ -28,6 +28,12 @@ test("replay handles overlapping poll batches exactly once and rejects corrupted
  assert.throws(()=>reduceEvents(sample.events.map((e,i)=>i===2?{...e,t_ms:0}:e)),/backwards/);
  assert.equal(buildEventSchema.safeParse({...sample.events[0],seq:-1}).success,false);
 });
+test("replay deduplicates the same patches after PostgreSQL jsonb reorders nested keys",()=>{
+ const reorder=(value:unknown):unknown=>Array.isArray(value)?value.map(reorder):value!==null&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.length-b.length||a.localeCompare(b)).map(([key,item])=>[key,reorder(item)])):value;
+ const sample=examples[0];
+ const recovered=sample.events.map(event=>buildEventSchema.parse(reorder(event)));
+ assert.deepEqual(reduceEvents([...sample.events,...recovered]),sample.record.artifacts);
+});
 test("repeated valid append patches cannot grow artifacts without bounds",()=>{
  const section=examples[0].record.artifacts.website.sections[0];let state=emptyArtifacts();
  for(let i=0;i<8;i++)state=applyPatch(state,{artifact:'website',path:'sections',op:'append',value:section});

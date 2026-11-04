@@ -39,9 +39,9 @@ The only permitted model IDs are `claude-haiku-4-5-20251001` and `claude-sonnet-
 
 A server-only `reserve_build` transaction locks the singleton limits row before admitting work. It enforces UTC daily, per-IP, concurrent and reserved-dollar caps across processes. Failures count against the budget. The default conservative reservation is $5 per build; an administrator must explicitly configure an approved daily budget. Only trusted Vercel forwarding headers identify public request IPs; raw IPs are HMAC-hashed with a secret salt. Non-Vercel development uses a shared loopback bucket.
 
-UUID request keys prevent duplicate paid builds on Strict Mode mounts, refreshes, and retried responses. Requests reject cross-origin posts, malformed IDs and oversized bodies. The Brief model moderates the idea before downstream stages; all outputs are treated as untrusted data. This is basic model moderation, not a claim of comprehensive abuse prevention.
+Globally unique UUID request keys prevent duplicate paid builds on Strict Mode mounts, refreshes, and retried responses, including a retry after the visitor changes networks. Requests reject cross-origin posts, malformed IDs and oversized bodies. The Brief model moderates the idea before downstream stages; all outputs are treated as untrusted data. This is basic model moderation, not a claim of comprehensive abuse prevention.
 
-Events persist in serialized batches during execution. Browser disconnects do not cancel server work, and a Next.js `after` hook holds the running promise. Polling resumes after the last contiguous sequence. A transactional `finish_build` saves the final snapshot and terminal event together before success is sent to the browser. Abandoned builds expire after ten minutes during admission or authorized reads. This recovers saved events, not interrupted model computation after a server crash.
+Events persist in serialized batches during execution. Browser disconnects do not cancel server work, and a Next.js `after` hook holds the running promise. Polling resumes after the last contiguous sequence and tolerates JSON object-key reordering by PostgreSQL. Recovery continues through the ten-minute lease and a one-minute cleanup grace; interrupted artifacts show stopped states instead of continuing to animate. A transactional `finish_build` saves the final snapshot and terminal event together before success is sent to the browser. Abandoned builds expire after ten minutes during admission or authorized reads. This recovers saved events, not interrupted model computation after a server crash.
 
 ## Dedicated Supabase setup
 
@@ -57,6 +57,19 @@ python3 scripts/check-reservation-concurrency.py company60-postgres-check
 
 The script only accepts an explicitly named test container and resets its application tables. The verified run admitted exactly 2 of 12 concurrent requests, and 12 identical retries produced one reservation/build.
 
+## Local end-to-end integration
+
+```bash
+npm run build
+npm run test:integration
+```
+
+Requires Docker. The runner starts isolated PostgreSQL and PostgREST containers, a loopback-only Supabase REST gateway, a production Next.js server, and an explicitly fixture-backed model HTTP server. It uses the actual Supabase client, Anthropic SDK, route handlers and database functions. Workstation service credentials are replaced with local test values; no paid model calls or hosted writes occur. All test services are removed afterward.
+
+The test verifies denied anonymous REST access, input/origin validation, cancellation of the browser stream while generation continues, eight idempotent retries creating one build, concurrent limits, batched saved events, stream/database overlap, final snapshot consistency, after-sequence polling, private page access, token sharing, generic private metadata, gallery exclusion, expiry and reserved-budget enforcement. It runs in GitHub CI after the build. This provides local integration evidence; it does not verify hosted Supabase configuration or real model output.
+
+Shared private links exchange their token for an HttpOnly, Secure-in-production, SameSite=Lax cookie so top-level navigation from email or social sites works. Mutating routes still require a matching browser origin.
+
 ## Explicit paid verification
 
 `scripts/verify-live.ts` is deliberately excluded from tests and CI. It makes real model calls only with an explicit flag:
@@ -69,7 +82,7 @@ Run it only with an approved API spend budget. It writes private local evidence 
 
 ## Deployment
 
-The dedicated Vercel project is `company-in-60-seconds` in `serpicoai`. Both generation flags remain false; no model or database credentials are required to deploy the demo gallery. GitHub source: https://github.com/VincentAZ/company-in-60-seconds. Set `SITE_URL` to the deployment's canonical origin if needed for metadata.
+The demo app is live at https://company-in-60-seconds.vercel.app. The dedicated Vercel project is `company-in-60-seconds` in `serpicoai`. Both generation flags remain false; no model or database credentials are required to deploy the demo gallery. GitHub source: https://github.com/VincentAZ/company-in-60-seconds. Set `SITE_URL` to the deployment's canonical origin if needed for metadata.
 
 The app has no per-company deployment, agent framework, Supabase Realtime dependency or PowerPoint export. All companies are served from `/c/[id]` and `/b/[id]` in one app.
 

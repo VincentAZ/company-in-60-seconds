@@ -5,7 +5,7 @@ You are the lead engineer implementing this project, not a spectator or plan wri
 ## Product
 A person enters a one-sentence business idea. Five model stages (Brief -> [Brand, Finance] -> [Website, Pitch], with stage 2 unlocked after Brand core + Finance assumptions) emit real timestamped events. UI reveals four artifacts: brand, responsive website, editable 36-month finance model, linked pitch deck. Recorded event stream supports deterministic 1x/4x replay. Finished websites served at /c/[id] and replays at /b/[id]. Public gallery showcases hand-curated examples.
 
-## Current verified state (November 4, 2026)
+## Initial handoff state (November 4, 2026)
 - Source already exists here. Next.js 16 / React 19 / TypeScript / Tailwind.
 - npm run typecheck and npm run build succeeded.
 - HTTP 200 verified for /, /b/demo-1, /c/demo-1, and /api/builds/demo-1 returned 31 events with Paw Palace brand.
@@ -16,6 +16,14 @@ A person enters a one-sentence business idea. Five model stages (Brief -> [Brand
 - Git repository and Vercel app may still need initialization and connection.
 - A local dev server may be running on localhost:3000. Don't kill unrelated services.
 - The architecture-review response from Claude Code stressed resume after disconnect, structured schema validation, and production cost controls.
+
+## Implementation progress (November 4, 2026)
+- Public demo app deployed at https://company-in-60-seconds.vercel.app from this repository. Twelve labeled hand-authored examples, social cards, responsive replay, editable finance and linked metrics are verified.
+- Typecheck, lint, production build and 57 unit/SQL/rendering tests pass. A real local PostgreSQL + PostgREST + production Next.js integration test exercises all five SDK calls with explicitly mocked model HTTP responses, disconnect recovery, idempotency, budgets, private sharing and expiry. Run `npm run build && npm run test:integration` with Docker; it performs no paid calls.
+- Supabase migration has not been applied to any hosted project. Creating a dedicated $0 project in VincentAZ's Org was authorized but rejected because both free slots are already occupied. Do not touch unrelated projects. Hosted setup remains pending capacity or an approved paid plan.
+- The one approved live API test (maximum $2) failed at Brief with Anthropic HTTP 400 billing rejection. No downstream calls ran. Private evidence is in `.local-data/live-verification-report.json`; no further billable tests have been authorized.
+- Public generation stays disabled in Vercel and locally by default. Neither fixture-backed tests nor successful model-list authentication justify setting GENERATION_VERIFIED. Reverify a complete real run and hosted controls before enabling it.
+- Atomic database reservations, global request-key idempotency, batched events, atomic terminal commits, private capability cookies and bounded retries are implemented. Hosted behavior is still unverified.
 
 ## Immediate priorities
 1. Inspect the code and run typecheck / build / lint / tests. Fix real bugs, notably React Strict Mode double-mount in LiveStudio, streaming error handling, request aborts, and potentially the model JSONL parser.

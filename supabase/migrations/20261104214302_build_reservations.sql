@@ -16,7 +16,7 @@ create table public.builds (
  artifacts jsonb not null, featured boolean not null default false, schema_version integer not null default 1,
  ip_hash text not null, request_key uuid not null, access_hash text not null,
  reserved_cents integer not null, expires_at timestamptz not null default now() + interval '10 minutes',
- unique(ip_hash, request_key)
+ unique(request_key)
 );
 create index builds_daily on public.builds(started_at);
 create index builds_ip_daily on public.builds(ip_hash, started_at);
@@ -37,13 +37,14 @@ grant all on public.build_limits,public.builds,public.build_events to service_ro
 
 -- Same database lock serializes every admission, including across serverless instances.
 -- Failures count toward the budget; reservations are never refunded automatically.
+-- Request keys are global: a lost-response retry after a network/IP change must not pay twice.
 create function public.reserve_build(p_id uuid,p_prompt text,p_ip_hash text,p_request_key uuid,p_access_hash text)
 returns jsonb language plpgsql security invoker set search_path='' as $$
 declare lim public.build_limits; existing public.builds; created public.builds;
  total bigint; ip_total bigint; active bigint; spent bigint;
 begin
  select * into lim from public.build_limits where singleton=true for update;
- select * into existing from public.builds where ip_hash=p_ip_hash and request_key=p_request_key;
+ select * into existing from public.builds where request_key=p_request_key;
  if found then
   if existing.prompt<>p_prompt then raise exception 'IDEMPOTENCY_CONFLICT'; end if;
   return jsonb_build_object('created',false,'record',to_jsonb(existing)-array['ip_hash','request_key','access_hash','reserved_cents','expires_at']);
@@ -84,12 +85,28 @@ grant execute on function public.reserve_build(uuid,text,text,uuid,text),public.
 -- that was not saved, nor a finalized snapshot with a missing terminal event.
 create function public.finish_build(p_id uuid,p_status text,p_duration_ms integer,p_artifacts jsonb,p_event jsonb)
 returns void language plpgsql security invoker set search_path='' as $$
-declare current_status text;
+declare current_status text; next_seq integer; event_count integer; last_time integer;
 begin
  select status into current_status from public.builds where id=p_id for update;
  if not found then raise exception 'BUILD_NOT_FOUND'; end if;
  if current_status<>'running' then raise exception 'BUILD_ALREADY_FINISHED'; end if;
- if p_status not in ('completed','partial','failed') or p_event->>'type'<>'build.completed' or p_event->>'build_id'<>p_id::text or p_event->'payload'->>'status'<>p_status then
+ if p_status is null or p_status not in ('completed','partial','failed')
+  or p_duration_ms is null or p_duration_ms not between 0 and 3600000
+  or jsonb_typeof(p_artifacts) is distinct from 'object'
+  or jsonb_typeof(p_event) is distinct from 'object'
+  or p_event->>'type' is distinct from 'build.completed'
+  or p_event->>'agent' is distinct from 'System'
+  or p_event->>'build_id' is distinct from p_id::text
+  or p_event->'payload'->>'status' is distinct from p_status
+  or p_event->'t_ms' is distinct from to_jsonb(p_duration_ms)
+  or p_event->'payload'->'duration_ms' is distinct from to_jsonb(p_duration_ms)
+  or jsonb_typeof(p_event->'seq') is distinct from 'number'
+  or (p_event->>'seq' ~ '^[0-9]{1,3}$') is not true then
+  raise exception 'INVALID_TERMINAL_EVENT';
+ end if;
+ select coalesce(max(seq),0)+1,count(*),coalesce(max(t_ms),0)
+ into next_seq,event_count,last_time from public.build_events where build_id=p_id;
+ if (p_event->>'seq')::integer<>next_seq or next_seq>256 or event_count<>next_seq-1 or p_duration_ms<last_time then
   raise exception 'INVALID_TERMINAL_EVENT';
  end if;
  insert into public.build_events(build_id,seq,t_ms,agent,type,payload)
