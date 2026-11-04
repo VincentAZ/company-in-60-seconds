@@ -17,10 +17,32 @@ export const coreSchema = z.object({
   voice: z.string().max(80),
   palette: paletteSchema
 });
+// Only a bounded SVG path grammar is accepted; never markup, URLs or arbitrary attributes.
+export function safeLogoPath(value:string):boolean {
+ const tokens=value.match(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/g);
+ if(!tokens||!/^\s*[Mm]/.test(value)||value.replace(/[MmLlHhVvCcSsQqTtAaZz]|[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?|[\s,]/g,"")!=="")return false;
+ const sizes:Record<string,number>={M:2,L:2,H:1,V:1,C:6,S:4,Q:4,T:2,A:7,Z:0};
+ let i=0;
+ while(i<tokens.length){
+  const command=tokens[i++].toUpperCase(),size=sizes[command];
+  if(size===undefined)return false;
+  if(size===0)continue;
+  let count=0;
+  while(i<tokens.length&&!/^[a-z]$/i.test(tokens[i])){
+   if(i+size>tokens.length)return false;
+   const group=tokens.slice(i,i+size).map(Number);
+   if(group.some(n=>!Number.isFinite(n)||Math.abs(n)>1000))return false;
+   if(command==="A"&&(group[0]<0||group[1]<0||![0,1].includes(group[3])||![0,1].includes(group[4])))return false;
+   i+=size;count++;
+  }
+  if(!count)return false;
+ }
+ return true;
+}
 export const logoShapeSchema = z.discriminatedUnion("kind", [
   z.object({kind:z.literal("circle"), cx:z.number().min(0).max(100),cy:z.number().min(0).max(100),r:z.number().min(0).max(100), fill:z.enum(["primary","accent","ink","surface"])}),
   z.object({kind:z.literal("rect"),x:z.number().min(0).max(100),y:z.number().min(0).max(100),width:z.number().min(0).max(100),height:z.number().min(0).max(100),rx:z.number().min(0).max(50),fill:z.enum(["primary","accent","ink","surface"])}),
-  z.object({kind:z.literal("path"),d:z.string().max(500).regex(/^[0-9.,\s\-+a-zA-Z]+$/),fill:z.enum(["primary","accent","ink","surface"])}),
+  z.object({kind:z.literal("path"),d:z.string().min(1).max(500).refine(safeLogoPath,"Invalid or unbounded SVG path"),fill:z.enum(["primary","accent","ink","surface"])}),
   z.object({kind:z.literal("line"),x1:z.number().min(0).max(100),y1:z.number().min(0).max(100),x2:z.number().min(0).max(100),y2:z.number().min(0).max(100),width:z.number().min(1).max(20),fill:z.enum(["primary","accent","ink","surface"])})
 ]);
 export const logoSchema = z.object({ shapes:z.array(logoShapeSchema).min(1).max(12) });
@@ -70,12 +92,15 @@ export const briefSchema=z.object({
   allowed:z.boolean(),
   reason:z.string().max(200)
 });
-export const patchSchema=z.object({
-  artifact:z.enum(["brief","brand","finance","website","pitch"]),
-  path:z.enum(["data","core","logo","assumptions","setup","sections","slides"]),
-  op:z.enum(["set","append"]),
-  value:z.unknown()
-});
+export const patchSchema=z.union([
+ z.object({artifact:z.literal("brief"),path:z.literal("data"),op:z.literal("set"),value:briefSchema}).strict(),
+ z.object({artifact:z.literal("brand"),path:z.literal("core"),op:z.literal("set"),value:coreSchema}).strict(),
+ z.object({artifact:z.literal("brand"),path:z.literal("logo"),op:z.literal("set"),value:logoSchema}).strict(),
+ z.object({artifact:z.literal("finance"),path:z.literal("assumptions"),op:z.literal("set"),value:financeSchema}).strict(),
+ z.object({artifact:z.literal("website"),path:z.literal("setup"),op:z.literal("set"),value:websiteSetupSchema}).strict(),
+ z.object({artifact:z.literal("website"),path:z.literal("sections"),op:z.literal("append"),value:sectionSchema}).strict(),
+ z.object({artifact:z.literal("pitch"),path:z.literal("slides"),op:z.literal("append"),value:slideSchema}).strict()
+]);
 export type Core=z.infer<typeof coreSchema>;
 export type Logo=z.infer<typeof logoSchema>;
 export type Finance=z.infer<typeof financeSchema>;
@@ -86,10 +111,17 @@ export type Brief=z.infer<typeof briefSchema>;
 export type Patch=z.infer<typeof patchSchema>;
 export type Agent="Brief"|"Brand"|"Finance"|"Website"|"Pitch"|"System";
 export type EventType="build.started"|"agent.started"|"agent.status"|"artifact.patch"|"handoff"|"agent.retry"|"agent.failed"|"agent.completed"|"build.completed";
-export interface BuildEvent {
-  build_id:string;seq:number;t_ms:number;agent:Agent;type:EventType;
-  payload:Record<string,unknown>;
-}
+export const buildEventSchema=z.object({
+ build_id:z.string().min(1).max(80).regex(/^[a-zA-Z0-9-]+$/),
+ seq:z.number().int().positive(),t_ms:z.number().int().min(0).max(3600000),
+ agent:z.enum(["Brief","Brand","Finance","Website","Pitch","System"]),
+ type:z.enum(["build.started","agent.started","agent.status","artifact.patch","handoff","agent.retry","agent.failed","agent.completed","build.completed"]),
+ payload:z.record(z.string(),z.unknown())
+}).strict().superRefine((event,ctx)=>{
+ if(JSON.stringify(event.payload).length>16000)ctx.addIssue({code:"custom",message:"Event payload is too large"});
+ if(event.type==="artifact.patch"&&!patchSchema.safeParse(event.payload).success)ctx.addIssue({code:"custom",message:"Invalid artifact patch"});
+});
+export type BuildEvent=z.infer<typeof buildEventSchema>;
 export interface Artifacts {
   brief:Brief|null;
   brand:{core:Core|null;logo:Logo|null};

@@ -8,10 +8,10 @@
     "start": "next start --hostname 0.0.0.0",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/*.test.ts"
+    "test": "tsx --test src/lib/*.test.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.80.0",
+    "@anthropic-ai/sdk": "0.91.1",
     "@supabase/supabase-js": "^2.119.0",
     "lucide-react": "^1.68.0",
     "motion": "^14.9.1",
@@ -21,6 +21,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
     "@tailwindcss/postcss": "^4.3.4",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
@@ -28,6 +29,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.4.5",
     "tailwindcss": "^4.3.4",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   }
 }

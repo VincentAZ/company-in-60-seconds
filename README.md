@@ -1,86 +1,78 @@
 # Company in 60 Seconds
 
-**One idea. Four AI builders. A company born before your eyes.**
+One idea becomes a brand, concept website, editable 36-month finance model and linked pitch deck. Five direct model stages emit timestamped, typed events: Brief → [Brand, Finance] → [Website, Pitch]. Downstream work starts when brand core and financial assumptions arrive, before the logo finishes.
 
-An interactive AI-company-creation showcase. Describe a fictional business in one sentence and watch a brief agent coordinate a brand identity, editable financial model, responsive concept landing page, and pitch deck. Creation is streamed as timestamped, typed events that can be replayed and shared.
+**Release status (November 4, 2026):** the twelve fictional demo companies work without API credentials. Generation is deliberately disabled. One authorized real Anthropic run failed at Brief with an API billing error; authentication and configured model availability passed. A dedicated Supabase project could not be created because the account already has two active free projects. Existing projects were left untouched. The database migration and admission controls pass local PostgreSQL checks; hosted persistence is not verified.
 
-> **Status: work in progress.** The application compiles and the example gallery/replays work. Live Anthropic generation is implemented but has not yet been verified end-to-end. Supabase production persistence, distributed rate limits, and deployment are pending. Do not enable unrestricted public generation until the cost/security protections are complete.
+## Run and verify
 
-## Features
-
-- **Mission-control studio:** staged agent execution and a real event feed.
-- **Actual dependencies:** Brief → Brand + Finance → Website + Pitch (stage 2 unlocks after brand core and financial assumptions become available).
-- **Brand identity:** name, voice, palette, and validated geometric SVG symbol.
-- **Live concept website:** generated from typed sections rendered with trusted React components; no model-authored HTML or JavaScript executes.
-- **Financial modeling:** editable assumptions and deterministic 36-month projections; not investment advice.
-- **Pitch deck:** slides reference finance model keys so metrics remain consistent.
-- **Replay:** timestamped semantic patches, deterministic reduction, 1×/4× playback.
-- **Gallery:** four illustrative, prerecorded example builds. No API key required to view them.
-- **Demo websites:** each build can be explored at `/c/[id]`; replays are at `/b/[id]`.
-
-## Run locally
-
-Requires Node.js 22+.
+Node.js 22+:
 
 ```bash
 npm ci
 npm run dev
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
-Open **http://localhost:3000**. Example: `http://localhost:3000/b/demo-1`.
+Open http://localhost:3000. Demo replay: `/b/demo-1`; concept website: `/c/demo-1`. The gallery contains twelve hand-authored examples, not outputs from verified live generation. All financials, businesses and market assumptions are illustrative.
 
-To use live generation, create `.env.local` based on `.env.example` and configure `ANTHROPIC_API_KEY`. **The API account requires separate billing/credits; Claude web subscriptions do not necessarily fund API calls.**
+Tests cover independent fixture snapshots vs event reduction, recorded-time 1×/4× replay, finance reconciliation and startup recovery, safe SVG paths, typed patches, model JSONL and SSE boundaries, orchestration dependencies, failure/cancellation, durable terminal commits, request serialization through the actual Anthropic SDK with mocked HTTP, database budgets/idempotency, cleanup, and denied anonymous access.
+
+## Experience
+
+- Brand core + finance assumptions trigger the recorded handoff pulse.
+- Logo shapes draw, financial graphs reveal, website sections arrive and scroll, and the pitch filmstrip assembles as their artifact events arrive.
+- Replay pause, scrub, restart and 1×/4× controls use the stored event timestamps.
+- Editing finance assumptions updates website pricing and linked deck metrics in the same studio. Edits are a local exploration and do not rewrite recorded history.
+- The full 36-month model exposes revenue, costs and profit. Break-even includes startup costs; operating profit excludes them. Marketplace unit price is net platform revenue per transaction. Growth applies before churn, and capacity is assumed expandable.
+- Company pages use trusted React templates. Generated HTML, JavaScript and arbitrary SVG markup are never executed. Demo forms do not transmit data.
+- Public demos have branded social cards. Unlisted builds require an HttpOnly capability cookie; explicit sharing creates a token link, exchanges it for a cookie, then redirects to a clean replay URL. A shared token grants access to anyone holding it. Private metadata remains generic and noindex.
+
+## Generation and cost controls
+
+Copy `.env.example` to `.env.local` and configure server-side values only. **Do not enable generation merely because a key is present.** Both `ENABLE_PUBLIC_BUILDS=true` and `GENERATION_VERIFIED=true`, valid independent secrets, configured persistence, and an enabled database budget are required. The default database budget is zero, with admission disabled. Development also fails closed.
+
+The only permitted model IDs are `claude-haiku-4-5-20251001` and `claude-sonnet-4-6`. Requests have a 16KB input bound, 1,600/4,800 output-token bounds, an overall 240-second deadline, and at most one retry per stage for transient provider failures before publishing any patch. API credits are separate from a Claude subscription. No public model endpoints or browser keys are used.
+
+A server-only `reserve_build` transaction locks the singleton limits row before admitting work. It enforces UTC daily, per-IP, concurrent and reserved-dollar caps across processes. Failures count against the budget. The default conservative reservation is $5 per build; an administrator must explicitly configure an approved daily budget. Only trusted Vercel forwarding headers identify public request IPs; raw IPs are HMAC-hashed with a secret salt. Non-Vercel development uses a shared loopback bucket.
+
+UUID request keys prevent duplicate paid builds on Strict Mode mounts, refreshes, and retried responses. Requests reject cross-origin posts, malformed IDs and oversized bodies. The Brief model moderates the idea before downstream stages; all outputs are treated as untrusted data. This is basic model moderation, not a claim of comprehensive abuse prevention.
+
+Events persist in serialized batches during execution. Browser disconnects do not cancel server work, and a Next.js `after` hook holds the running promise. Polling resumes after the last contiguous sequence. A transactional `finish_build` saves the final snapshot and terminal event together before success is sent to the browser. Abandoned builds expire after ten minutes during admission or authorized reads. This recovers saved events, not interrupted model computation after a server crash.
+
+## Dedicated Supabase setup
+
+Apply `supabase/migrations/20261104214302_build_reservations.sql` to a **new dedicated project** after its organization and cost are approved. It creates `build_limits`, `builds`, `build_events`, and three server-only RPCs. RLS is enabled; `anon` and `authenticated` have no table or RPC grants. Sanitized reads flow through Next.js, never direct browser database access. Only explicitly featured records appear in the gallery. Runtime service credentials must remain server-side.
+
+Hosted setup remains pending the free-project quota decision. Do not repurpose, pause or delete unrelated projects to bypass this limit. Before public enablement, verify hosted grants/advisors, concurrent reservations, cookie-protected reads and sharing, event persistence during disconnect, cleanup, a real complete model run, and an approved database budget.
+
+Unit database checks use PGlite. To reproduce real multi-session contention with Docker, create an isolated local PostgreSQL container, create `anon`, `authenticated`, and `service_role` (BYPASSRLS) roles, and apply the migration. Then run:
 
 ```bash
-npm run typecheck
-npm run build
-npm run lint
+python3 scripts/check-reservation-concurrency.py company60-postgres-check
 ```
 
-## Stack
+The script only accepts an explicitly named test container and resets its application tables. The verified run admitted exactly 2 of 12 concurrent requests, and 12 identical retries produced one reservation/build.
 
-Next.js 16, React 19, TypeScript, Tailwind CSS 4, Motion, Lucide, Zod, Anthropic SDK, and optional Supabase/Postgres.
+## Explicit paid verification
 
-## Architecture
+`scripts/verify-live.ts` is deliberately excluded from tests and CI. It makes real model calls only with an explicit flag:
 
-```text
-Business idea
-     │
-     ▼
-Brief (validation + concept)
-     │
-     ├─────────────────┐
-     ▼                 ▼
-Brand core           Finance assumptions
-     │                 │
-     └────────┬────────┘
-              │
-     ┌────────┴─────────┐
-     ▼                  ▼
-Website sections     Pitch slides
-     │                  │
-     └────────┬─────────┘
-              ▼
-     Timed patch event log
-              │
-       ┌──────┴───────┐
-       ▼              ▼
-   Live studio     Shareable replay
+```bash
+npx tsx scripts/verify-live.ts --confirm-paid-run
 ```
 
-Events follow `{build_id, seq, t_ms, agent, type, payload}`. The reducer in `src/lib/reducer.ts` applies typed semantic patches; `src/lib/fixtures.ts` supplies example events. The AI orchestration lives in `src/lib/agents.ts`, with storage in `src/lib/storage.ts`.
+Run it only with an approved API spend budget. It writes private local evidence under ignored `.local-data`, checks recorded replay against the final snapshot and categorizes provider failures without printing credentials. A failed verification must not unlock public generation.
 
-## Responsible deployment
+## Deployment
 
-- Never put model or Supabase service-role keys in client-side variables.
-- Public AI generation defaults to **off in production** (`ENABLE_PUBLIC_BUILDS=false`).
-- The existing rate checks are not yet atomic across serverless instances. Add database-enforced reservations, IP/day/global caps, and spending caps before enabling public runs.
-- Configure a dedicated Supabase project and appropriate row-level security before release.
-- Financial projections, market opportunities, brand names and concept websites are illustrative. The gallery uses prerecorded example event logs.
-- Generated sites do not execute arbitrary AI-authored code. Contact forms are explicitly demo-only.
+The dedicated Vercel project is `company-in-60-seconds` in `serpicoai`. Both generation flags remain false; no model or database credentials are required to deploy the demo gallery. GitHub source: https://github.com/VincentAZ/company-in-60-seconds. Set `SITE_URL` to the deployment's canonical origin if needed for metadata.
 
-See **AGENTS.md** for the implementation handoff and next engineering tasks.
+The app has no per-company deployment, agent framework, Supabase Realtime dependency or PowerPoint export. All companies are served from `/c/[id]` and `/b/[id]` in one app.
 
 ## License
 
-No license has been selected yet. Publicly visible source is not automatically permission to reuse it.
+No license has been selected. Public source visibility does not itself grant reuse permission.

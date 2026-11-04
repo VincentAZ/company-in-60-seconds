@@ -1,29 +1,42 @@
-import { briefSchema,coreSchema,financeSchema,logoSchema,patchSchema,sectionSchema,slideSchema,websiteSetupSchema } from "./schema";
+import { buildEventSchema,patchSchema } from "./schema";
 import type {Artifacts,BuildEvent,Patch} from "./schema";
 export const emptyArtifacts=():Artifacts=>({brief:null,brand:{core:null,logo:null},finance:null,website:{setup:null,sections:[]},pitch:{slides:[]}});
-export function applyPatch(a:Artifacts,p:Patch):Artifacts{
+export function applyPatch(a:Artifacts,input:Patch):Artifacts{
+ const p=patchSchema.parse(input);
  const next:Artifacts={...a,brand:{...a.brand},website:{...a.website,sections:[...a.website.sections]},pitch:{slides:[...a.pitch.slides]}};
- try{
-  if(p.artifact==="brief"&&p.path==="data"&&p.op==="set")next.brief=briefSchema.parse(p.value);
-  else if(p.artifact==="brand"&&p.path==="core"&&p.op==="set")next.brand.core=coreSchema.parse(p.value);
-  else if(p.artifact==="brand"&&p.path==="logo"&&p.op==="set")next.brand.logo=logoSchema.parse(p.value);
-  else if(p.artifact==="finance"&&p.path==="assumptions"&&p.op==="set")next.finance=financeSchema.parse(p.value);
-  else if(p.artifact==="website"&&p.path==="setup"&&p.op==="set")next.website.setup=websiteSetupSchema.parse(p.value);
-  else if(p.artifact==="website"&&p.path==="sections"&&p.op==="append")next.website.sections.push(sectionSchema.parse(p.value));
-  else if(p.artifact==="pitch"&&p.path==="slides"&&p.op==="append")next.pitch.slides.push(slideSchema.parse(p.value));
-  else throw new Error("Unsupported patch: "+p.artifact+"/"+p.path+"/"+p.op);
- }catch(e){throw new Error("Patch validation: "+(e instanceof Error?e.message:"unknown"));}
+ if(p.artifact==="brief")next.brief=p.value;
+ else if(p.artifact==="brand"&&p.path==="core")next.brand.core=p.value;
+ else if(p.artifact==="brand"&&p.path==="logo")next.brand.logo=p.value;
+ else if(p.artifact==="finance")next.finance=p.value;
+ else if(p.artifact==="website"&&p.path==="setup")next.website.setup=p.value;
+ else if(p.artifact==="website"&&p.path==="sections"){
+  if(next.website.sections.length>=8)throw new Error("Website section limit reached");
+  next.website.sections.push(p.value);
+ }else if(p.artifact==="pitch"){
+  if(next.pitch.slides.length>=10)throw new Error("Pitch slide limit reached");
+  next.pitch.slides.push(p.value);
+ }
  return next;
 }
+/** Poll and stream deliveries can overlap; a sequence may only be applied once. */
 export function reduceEvents(events:BuildEvent[],initial:Artifacts=emptyArtifacts()):Artifacts{
- return [...events].sort((a,b)=>a.seq-b.seq).reduce((state,e)=>{
-   if(e.type!=="artifact.patch")return state;
-   return applyPatch(state,patchSchema.parse(e.payload));
- },initial);
+ const seen=new Map<number,string>();let buildId:string|undefined;let time=0;let state=initial;
+ for(const raw of [...events].sort((a,b)=>a.seq-b.seq)){
+  const e=buildEventSchema.parse(raw);
+  if(buildId&&buildId!==e.build_id)throw new Error("Cannot mix events from different builds");
+  buildId=e.build_id;
+  const serialized=JSON.stringify(e),previous=seen.get(e.seq);
+  if(previous){if(previous!==serialized)throw new Error("Conflicting event sequence");continue;}
+  seen.set(e.seq,serialized);
+  if(e.t_ms<time)throw new Error("Event time moved backwards");
+  time=e.t_ms;
+  if(e.type==="artifact.patch")state=applyPatch(state,patchSchema.parse(e.payload));
+ }
+ return state;
 }
 export function eventStatus(events:BuildEvent[]):Record<string,string>{
  const status:Record<string,string>={};
- for(const e of events){
+ for(const e of [...events].sort((a,b)=>a.seq-b.seq)){
   if(e.type==="agent.started")status[e.agent]="working";
   if(e.type==="agent.completed")status[e.agent]="done";
   if(e.type==="agent.failed")status[e.agent]="failed";
