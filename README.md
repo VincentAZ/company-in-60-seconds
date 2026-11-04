@@ -26,6 +26,7 @@ Tests cover independent fixture snapshots vs event reduction, recorded-time 1×/
 - Brand core + finance assumptions trigger the recorded handoff pulse.
 - Logo shapes draw, financial graphs reveal, website sections arrive and scroll, and the pitch filmstrip assembles as their artifact events arrive.
 - Replay pause, scrub, restart and 1×/4× controls use the stored event timestamps.
+- Opening or refreshing a running build follows its saved events using read-only polling. Its website page shows a waiting state until generation stops; builds without a website show the recorded outcome. Finished websites remain immediately accessible during replay.
 - Editing finance assumptions updates website pricing and linked deck metrics in the same studio. Edits are a local exploration and do not rewrite recorded history.
 - The full 36-month model exposes revenue, costs and profit. Break-even includes startup costs; operating profit excludes them. Marketplace unit price is net platform revenue per transaction. Growth applies before churn, and capacity is assumed expandable.
 - Company pages use trusted React templates. Generated HTML, JavaScript and arbitrary SVG markup are never executed. Demo forms do not transmit data.
@@ -66,7 +67,7 @@ npm run test:integration
 
 Requires Docker. The runner starts isolated PostgreSQL and PostgREST containers, a loopback-only Supabase REST gateway, a production Next.js server, and an explicitly fixture-backed model HTTP server. It uses the actual Supabase client, Anthropic SDK, route handlers and database functions. Workstation service credentials are replaced with local test values; no paid model calls or hosted writes occur. All test services are removed afterward.
 
-The test verifies denied anonymous REST access, input/origin validation, cancellation of the browser stream while generation continues, eight idempotent retries creating one build, concurrent limits, batched saved events, stream/database overlap, final snapshot consistency, after-sequence polling, private page access, token sharing, generic private metadata, gallery exclusion, expiry and reserved-budget enforcement. It runs in GitHub CI after the build. This provides local integration evidence; it does not verify hosted Supabase configuration or real model output.
+The test verifies denied anonymous REST access, input/origin validation, cancellation of the browser stream while generation continues, eight idempotent retries creating one build, concurrent limits, batched saved events, live build and unfinished website routes, stream/database overlap, final snapshot consistency, after-sequence polling, private page access, token sharing, generic private metadata, gallery exclusion, expiry and reserved-budget enforcement. It runs in GitHub CI after the build. This provides local integration evidence; it does not verify hosted Supabase configuration or real model output.
 
 Shared private links exchange their token for an HttpOnly, Secure-in-production, SameSite=Lax cookie so top-level navigation from email or social sites works. Mutating routes still require a matching browser origin.
 

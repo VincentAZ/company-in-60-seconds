@@ -92,6 +92,11 @@ async function main(){
   assert.equal(running!.record.status,'running');assert.equal((await read(0,'')).status,404);
   assert.equal((await fetch(`${origin}/b/${id}`)).status,404);assert.equal((await fetch(`${origin}/api/og/${id}`)).status,404);
   for(const secret of ['access_hash','ip_hash','request_key','reserved_cents','expires_at'])assert.equal(Object.hasOwn(running!.record,secret),false);
+  const runningReplay=await fetch(origin+'/b/'+id,{headers:{Cookie:ownerCookie}});assert.equal(runningReplay.status,200);
+  const runningHTML=await runningReplay.text();assert.match(runningHTML,/LIVE BUILD/);assert.doesNotMatch(runningHTML,/class="replay-controls"/);
+  const pendingSite=await fetch(origin+'/c/'+id,{headers:{Cookie:ownerCookie}});assert.equal(pendingSite.status,200);
+  const pendingHTML=await pendingSite.text();assert.match(pendingHTML,/data-build-state="running"/);assert.doesNotMatch(pendingHTML,/class="generated-site/);
+  summary('running replay resumes saved events and its website shows an honest waiting state');
   const lastSeen=streamed.at(-1)!.seq;
   // JSONB deliberately reorders keys. Recovery must accept stream/database overlap.
   assert.doesNotThrow(()=>mergeBuildEvents(streamed,running!.events));
@@ -120,6 +125,8 @@ async function main(){
   const {createHash}=await import('node:crypto');const hash=createHash('sha256').update(token).digest('hex');
   sql(`select reserve_build('${abandonedId}','An abandoned integration fixture','another-ip','${randomUUID()}','${hash}'); update builds set expires_at=now()-interval '1 minute' where id='${abandonedId}';`);
   const expired=await fetch(origin+'/api/builds/'+abandonedId,{headers:{Cookie:`build_${abandonedId}=${token}`}});assert.equal(expired.status,200);const failed=await expired.json();assert.equal(failed.record.status,'failed');assert.equal(failed.events.at(-1).payload.status,'failed');
+  const emptySite=await fetch(origin+'/c/'+abandonedId,{headers:{Cookie:`build_${abandonedId}=${token}`}});assert.equal(emptySite.status,200);
+  const emptyHTML=await emptySite.text();assert.match(emptyHTML,/data-build-state="unavailable"/);assert.doesNotMatch(emptyHTML,/class="generated-site/);
   assert.equal((await post(randomUUID())).status,429);assert.equal(model.stats.requests.Brief,1);
   summary('abandoned reservation expires honestly; failed reservation still consumes budget');
   console.log('Local integration passed. All model responses were test fixtures; no paid API calls.');

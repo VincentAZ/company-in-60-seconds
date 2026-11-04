@@ -122,7 +122,7 @@ function DependencyMap({events,artifacts}:{events:BuildEvent[];artifacts:Artifac
   <small>{handoff?`Handoff recorded at ${fmt(handoff.t_ms)}`:"Waiting for both inputs"}</small>
  </div>;
 }
-function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}:{events:BuildEvent[];prompt:string;elapsed:number;replay?:boolean;demo?:boolean;id?:string;problem?:string;notice?:string}){
+function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice,finalArtifacts}:{events:BuildEvent[];prompt:string;elapsed:number;replay?:boolean;demo?:boolean;id?:string;problem?:string;notice?:string;finalArtifacts?:Artifacts}){
  const reduction=useMemo(()=>{try{return {artifacts:reduceEvents(events),error:""}}catch{return {artifacts:emptyArtifacts(),error:"Saved events are inconsistent. This replay cannot reconstruct the artifacts safely."};}},[events]);
  const artifacts=reduction.artifacts;
  problem=problem||reduction.error;
@@ -141,6 +141,8 @@ function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}
   if(e.type==="agent.failed")statuses[e.agent]="failed";
  }
  const finished=last?.type==="build.completed";
+ const availableArtifacts=finalArtifacts??artifacts;
+ const canShare=Boolean(finalArtifacts)||finished;
  const stopped=finished||Boolean(problem);
  if(stopped)for(const agent of AGENTS)if(statuses[agent.name]==="working")statuses[agent.name]="stopped";
  const terminalStatus=finished?String(last.payload.status):"";
@@ -176,7 +178,7 @@ function Stage({events,prompt,elapsed,replay=false,demo=false,id,problem,notice}
     </div>
     {completed&&<div className="build-finale" key={last.seq}><Sparkles size={17}/><strong>One idea. Four connected artifacts.</strong><span>Explore the website, edit the numbers, share the replay.</span></div>}
     <div className="studio-share">
-     {id&&<><Link href={"/c/"+id}>Open concept website <ExternalLink size={13} style={{display:"inline"}}/></Link>
+     {id&&canShare&&<>{availableArtifacts.brand.core&&availableArtifacts.website.sections.length>0&&<Link href={"/c/"+id}>Open concept website <ExternalLink size={13} style={{display:"inline"}}/></Link>}
      <button disabled={sharing} onClick={async()=>{
       setSharing(true);setCopyError("");
       try{
@@ -210,18 +212,23 @@ const waitForPoll=(signal:AbortSignal)=>new Promise<void>((resolve,reject)=>{
  signal.addEventListener("abort",abort,{once:true});
  if(signal.aborted)abort();
 });
-export function LiveStudio({prompt,requestId}:{prompt:string;requestId?:string}){
- const [events,setEvents]=useState<BuildEvent[]>([]),[error,setError]=useState(""),[notice,setNotice]=useState(""),[elapsed,setElapsed]=useState(0),[id,setId]=useState("");
+type LiveStudioProps={prompt:string}&({existingBuildId:string;initialEvents:BuildEvent[];startedAt:string;requestId?:never}|{existingBuildId?:never;initialEvents?:never;startedAt?:never;requestId?:string});
+const NO_EVENTS:BuildEvent[]=[];
+export function LiveStudio({prompt,requestId,existingBuildId,initialEvents=NO_EVENTS,startedAt:recordStartedAt}:LiveStudioProps){
+ const [events,setEvents]=useState<BuildEvent[]>(initialEvents),[error,setError]=useState(""),[notice,setNotice]=useState(""),[elapsed,setElapsed]=useState(initialEvents.at(-1)?.t_ms||0),[id,setId]=useState(existingBuildId||"");
  useEffect(()=>{
   const controller=new AbortController();
   const signal=controller.signal;
-  let collected:BuildEvent[]=[],terminal=false,stopped=false;
-  let startedAt=Date.now();
+  let collected:BuildEvent[]=initialEvents,terminal=initialEvents.at(-1)?.type==="build.completed",stopped=false;
+  let startedAt=recordStartedAt?Date.parse(recordStartedAt):Date.now();
+  if(!Number.isFinite(startedAt))startedAt=Date.now();
   const storageKey="company-build:v1:"+(requestId||prompt);
-  const saved=savedBuild(storageKey,requestId);
-  rememberBuild(storageKey,saved);
+  // Existing build views are read-only, even with absent or corrupt session storage.
+  const readOnly=existingBuildId!==undefined;
+  const saved:SavedBuild=readOnly?{requestId:"",id:existingBuildId}:savedBuild(storageKey,requestId);
+  if(!readOnly)rememberBuild(storageKey,saved);
   const timer=setInterval(()=>{if(!signal.aborted&&!terminal&&!stopped)setElapsed(Date.now()-startedAt);},100);
-  const identify=(value:string)=>{if(!/^[a-z0-9-]{1,80}$/i.test(value))throw new Error("Invalid build identifier.");saved.id=value;rememberBuild(storageKey,saved);if(!signal.aborted)setId(value);};
+  const identify=(value:string)=>{if(!/^[a-z0-9-]{1,80}$/i.test(value))throw new Error("Invalid build identifier.");saved.id=value;if(!readOnly)rememberBuild(storageKey,saved);if(!signal.aborted)setId(value);};
   const accept=(incoming:BuildEvent[])=>{
    if(signal.aborted)return;
    if(incoming[0]){if(saved.id&&incoming[0].build_id!==saved.id)throw new Error("Unexpected build identifier.");identify(incoming[0].build_id);}
@@ -258,6 +265,7 @@ export function LiveStudio({prompt,requestId}:{prompt:string;requestId?:string})
   };
   const run=async()=>{
    try{
+    if(readOnly){identify(existingBuildId);setNotice("Recovering saved events…");await poll();return;}
     if(saved.id){identify(saved.id);setNotice("Recovering saved events…");await poll();return;}
     const response=await fetch("/api/build",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":saved.requestId},body:JSON.stringify({prompt}),signal});
     if(!response.ok){const body=await response.json();throw new Error(body.error||"Could not start build.");}
@@ -287,7 +295,7 @@ export function LiveStudio({prompt,requestId}:{prompt:string;requestId?:string})
   // idempotency key also protects real remounts, lost responses, and reloads.
   const kickoff=setTimeout(()=>void run(),0);
   return()=>{clearTimeout(kickoff);clearInterval(timer);controller.abort();};
- },[prompt,requestId]);
+ },[prompt,requestId,existingBuildId,initialEvents,recordStartedAt]);
  return <Stage events={events} prompt={prompt} elapsed={elapsed} id={id||undefined} problem={error} notice={notice}/>;
 }
 export function ReplayStudio({record,events}:{record:BuildRecord;events:BuildEvent[]}){
@@ -308,6 +316,6 @@ export function ReplayStudio({record,events}:{record:BuildRecord;events:BuildEve
    <span style={{fontSize:12,color:"#a5b4ca",whiteSpace:"nowrap"}}>{fmtClock(duration)}</span>
    <button className={speed===1?"selected":""} onClick={()=>setSpeed(1)}>1×</button><button className={speed===4?"selected":""} onClick={()=>setSpeed(4)}>4×</button>
   </div></div>
-  <Stage key={record.id+":"+epoch} replay demo={record.id.startsWith("demo-")} events={visible} prompt={record.prompt} elapsed={pos} id={record.id}/>
+  <Stage key={record.id+":"+epoch} replay demo={record.id.startsWith("demo-")} events={visible} prompt={record.prompt} elapsed={pos} id={record.id} finalArtifacts={record.status!=="running"&&events.at(-1)?.type==="build.completed"?record.artifacts:undefined}/>
  </>;
 }
