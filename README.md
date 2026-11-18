@@ -89,4 +89,6 @@ The app has no per-company deployment, agent framework, Supabase Realtime depend
 
 ## License
 
-No license has been selected. Public source visibility does not itself grant reuse permission.
+The original application code is free and open source under the [MIT License](LICENSE), copyright © 2026 Vincent Serpico. Use it, modify it, redistribute it, or build a business with it; keep the copyright and permission notice with copies or substantial portions of the code.
+
+Third-party packages, services, and fonts keep their own licenses. Demo companies, brands, and financials are fictional and illustrative.
